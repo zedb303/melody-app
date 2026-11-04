@@ -1,21 +1,43 @@
-name: felege_tibeb_mezmur
-description: "Ye-Weybo Debre Tsige Qidus Gebriel Felege Tibeb Mezmur App"
-publish_to: "none"
-version: 1.0.0+1
+name: Build Android APK
 
-environment:
-  sdk: ">=3.0.0 <4.0.0"
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
 
-dependencies:
-  flutter:
-    sdk: flutter
-  audioplayers: ^6.0.0
-  google_fonts: ^6.1.0
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. ኮዱን ማውረድ
+        uses: actions/checkout@v4
 
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  flutter_lints: ^3.0.0
+      - name: 2. ጃቫን ማዘጋጀት (Java 17 with setup-java v5)
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-flutter:
-  uses-material-design: true
+      - name: 3. Flutter ማዘጋጀት
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: 4. የአንድሮይድ ፕሮጀክት ማመንጨት (Fixed Project Name)
+        run: |
+          flutter create . --project-name felege_tibeb_mezmur --platforms=android --org com.felegetibeb.app
+          sed -i '/<application/i <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml || true
+
+      - name: 5. ጥገኞችን መጫን (Get packages)
+        run: flutter pub get
+
+      - name: 6. APK መገንባት (Build APK)
+        run: flutter build apk --release
+
+      - name: 7. APK ፋይሉን ማውጫ ማዘጋጀት (Upload Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Felege-Tibeb-Mezmur-App
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 7

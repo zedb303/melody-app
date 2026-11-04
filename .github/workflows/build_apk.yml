@@ -1,44 +1,944 @@
-name: Build Android APK
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:audioplayers/audioplayers.dart';
 
-on:
-  push:
-    branches: [ "main", "master" ]
-  workflow_dispatch:
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const EOTCSpiritualApp());
+}
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: 1. ኮዱን ማውረድ (Checkout repository)
-        uses: actions/checkout@v4
+// ==========================================
+// 1. ሞዴሎች (DATA MODELS)
+// ==========================================
 
-      - name: 2. ጃቫን ማዘጋጀት (Setup Java)
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
+class Mezmur {
+  final String id;
+  final String title;
+  final String singer;
+  final String audioUrl;
+  final String coverUrl;
+  final String category;
+  final String lyrics;
+  bool isFavorite;
+  bool isDownloaded;
 
-      - name: 3. Flutter ማዘጋጀት (Setup Flutter)
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          cache: true
+  Mezmur({
+    required this.id,
+    required this.title,
+    required this.singer,
+    required this.audioUrl,
+    required this.coverUrl,
+    required this.category,
+    required this.lyrics,
+    this.isFavorite = false,
+    this.isDownloaded = false,
+  });
+}
 
-      - name: 4. የጎደሉ የአንድሮይድ ፋይሎችን በራስ-ሰር ማመንጨት (Recreate Android folder)
-        run: |
-          flutter create . --platforms=android --org com.felegetibeb.app
-          # የኢንተርኔት ፈቃድ ወደ AndroidManifest ማከል
-          sed -i '/<application/i <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
+class SpiritualPoem {
+  final String id;
+  final String title;
+  final String author;
+  final String content;
+  final String category;
+  final String? audioRecitationUrl;
+  bool isFavorite;
 
-      - name: 5. ፓኬጆችን መጫን (Get Dependencies)
-        run: flutter pub get
+  SpiritualPoem({
+    required this.id,
+    required this.title,
+    required this.author,
+    required this.content,
+    required this.category,
+    this.audioRecitationUrl,
+    this.isFavorite = false,
+  });
+}
 
-      - name: 6. APK መገንባት (Build Release APK)
-        run: flutter build apk --release
+// ==========================================
+// 2. የአፕሊኬሽኑ ሁኔታ መቆጣጠሪያ (APP STATE)
+// ==========================================
 
-      - name: 7. የተሰራውን APK ወደ GitHub ማውጫ ማዘጋጀት (Upload APK)
-        uses: actions/upload-artifact@v4
-        with:
-          name: Felege-Tibeb-Mezmur-App
-          path: build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 7
+class AppState extends ChangeNotifier {
+  final AudioPlayer _player = AudioPlayer();
+
+  Mezmur? _currentMezmur;
+  SpiritualPoem? _currentPoemAudio;
+  bool _isPlaying = false;
+  Duration _currentPosition = Duration.zero;
+  Duration _totalDuration = Duration.zero;
+
+  // የመዝሙራት ዝርዝር
+  final List<Mezmur> _mezmurs = [
+    Mezmur(
+      id: 'm1',
+      title: 'ገብርኤል ኃያል መልአከ ሰላም',
+      singer: 'ፈለገ ጥበብ ሰ/ት/ቤት መዘምራን',
+      category: 'የቅዱስ ገብርኤል',
+      audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+      coverUrl: 'https://images.unsplash.com/photo-1548625361-195fe578491c?w=500',
+      lyrics: '''ገብርኤል ኃያል መልአከ ሰላም
+የታመንክ አገልጋይ ለሕዝብህ ሁሉ
+በእሳቱ ባሕር ውስጥ ጥላ የሆንከው
+ታደገን ከክፉው ከሚነደው እሳት።
+
+አዝ፦ ገብርኤል ስልህ ይሰማኛል ሰላም
+በአማላጅነትህ ታድነናለህ ዘላለም።''',
+    ),
+    Mezmur(
+      id: 'm2',
+      title: 'ደስ ይበለን በደብረ ጽጌ',
+      singer: 'የሰንበት ት/ቤቱ ያሬዳዊ ክፍል',
+      category: 'የደብረ ጽጌ',
+      audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
+      coverUrl: 'https://images.unsplash.com/photo-1509021436665-8f07dbf5bf1d?w=500',
+      lyrics: '''ደስ ይበለን በደብረ ጽጌ ቆመን
+የእግዚአብሔርን ስም በዝማሬ ጠርተን
+ቅዱስ ገብርኤል ጠባቂያችን ነውና
+ይድረሰው ምስጋና ይድረሰው ዜማ።''',
+    ),
+  ];
+
+  // የመንፈሳዊ ግጥሞች ዝርዝር
+  final List<SpiritualPoem> _poems = [
+    SpiritualPoem(
+      id: 'p1',
+      title: 'የወይቦው ታዳጊ',
+      author: 'ዲ/ን ተስፋዬ (ፈለገ ጥበብ)',
+      category: 'የቅዱስ ገብርኤል',
+      audioRecitationUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
+      content: '''በወይቦ ደብረ ጽጌ ክብርህ የታየው
+የምእመናን አባት ገብርኤል ኃያል ነው
+እሳቱን አብርደህ ለሕዝብህ ጥላ የሆንክ
+ለደከመው ብርታት ለታመመው ጤና የሰጠህ
+ስምህን የጠራ መቼ አፍሮ ያውቃል
+የአምላኬ መልአክ ፈጥኖ ይደርስልናል።''',
+    ),
+  ];
+
+  List<Mezmur> get mezmurs => _mezmurs;
+  List<SpiritualPoem> get poems => _poems;
+  Mezmur? get currentMezmur => _currentMezmur;
+  SpiritualPoem? get currentPoemAudio => _currentPoemAudio;
+  bool get isPlaying => _isPlaying;
+  Duration get currentPosition => _currentPosition;
+  Duration get totalDuration => _totalDuration;
+
+  AppState() {
+    _initAudio();
+  }
+
+  void _initAudio() {
+    _player.onPositionChanged.listen((p) {
+      _currentPosition = p;
+      notifyListeners();
+    });
+    _player.onDurationChanged.listen((d) {
+      _totalDuration = d;
+      notifyListeners();
+    });
+    _player.onPlayerStateChanged.listen((s) {
+      _isPlaying = s == PlayerState.playing;
+      notifyListeners();
+    });
+  }
+
+  Future<void> playMezmur(Mezmur mezmur) async {
+    _currentPoemAudio = null;
+    _currentMezmur = mezmur;
+    await _player.stop();
+    await _player.play(UrlSource(mezmur.audioUrl));
+    notifyListeners();
+  }
+
+  Future<void> playPoemAudio(SpiritualPoem poem) async {
+    if (poem.audioRecitationUrl == null) return;
+    _currentMezmur = null;
+    _currentPoemAudio = poem;
+    await _player.stop();
+    await _player.play(UrlSource(poem.audioRecitationUrl!));
+    notifyListeners();
+  }
+
+  Future<void> togglePlayPause() async {
+    if (_isPlaying) {
+      await _player.pause();
+    } else {
+      await _player.resume();
+    }
+  }
+
+  Future<void> seek(Duration pos) async => await _player.seek(pos);
+
+  void toggleFavorite(Mezmur m) {
+    m.isFavorite = !m.isFavorite;
+    notifyListeners();
+  }
+
+  void togglePoemFavorite(SpiritualPoem p) {
+    p.isFavorite = !p.isFavorite;
+    notifyListeners();
+  }
+
+  // ==========================================
+  // የአድሚን ተግባራት (ADMIN ACTIONS)
+  // ==========================================
+  void addMezmur(Mezmur newMezmur) {
+    _mezmurs.insert(0, newMezmur); // አዲሱን ከላይ ማስቀመጥ
+    notifyListeners();
+  }
+
+  void addPoem(SpiritualPoem newPoem) {
+    _poems.insert(0, newPoem);
+    notifyListeners();
+  }
+
+  void deleteMezmur(String id) {
+    _mezmurs.removeWhere((m) => m.id == id);
+    notifyListeners();
+  }
+
+  void deletePoem(String id) {
+    _poems.removeWhere((p) => p.id == id);
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+}
+
+class StateScope extends InheritedNotifier<AppState> {
+  const StateScope({super.key, required AppState state, required super.child})
+      : super(notifier: state);
+
+  static AppState of(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<StateScope>()!.notifier!;
+  }
+}
+
+// ==========================================
+// 3. ዋናው ገጽታ (THEME & SHELL)
+// ==========================================
+
+class EOTCSpiritualApp extends StatefulWidget {
+  const EOTCSpiritualApp({super.key});
+
+  @override
+  State<EOTCSpiritualApp> createState() => _EOTCSpiritualAppState();
+}
+
+class _EOTCSpiritualAppState extends State<EOTCSpiritualApp> {
+  late final AppState _state;
+
+  @override
+  void initState() {
+    super.initState();
+    _state = AppState();
+  }
+
+  @override
+  void dispose() {
+    _state.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StateScope(
+      state: _state,
+      child: MaterialApp(
+        title: 'ፈለገ ጥበብ መዝሙር',
+        debugShowCheckedModeBanner: false,
+        themeMode: ThemeMode.dark,
+        darkTheme: ThemeData(
+          brightness: Brightness.dark,
+          scaffoldBackgroundColor: const Color(0xFF0F0C0E),
+          primaryColor: const Color(0xFFD4AF37),
+          colorScheme: const ColorScheme.dark(
+            primary: Color(0xFFD4AF37),
+            secondary: Color(0xFF991B1B),
+            surface: Color(0xFF1B1417),
+          ),
+          textTheme: GoogleFonts.notoSansEthiopicTextTheme(ThemeData.dark().textTheme),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Color(0xFF1B1417),
+            elevation: 0,
+            iconTheme: IconThemeData(color: Color(0xFFD4AF37)),
+          ),
+        ),
+        home: const AppShellScreen(),
+      ),
+    );
+  }
+}
+
+class AppShellScreen extends StatefulWidget {
+  const AppShellScreen({super.key});
+
+  @override
+  State<AppShellScreen> createState() => _AppShellScreenState();
+}
+
+class _AppShellScreenState extends State<AppShellScreen> {
+  int _tabIndex = 0;
+
+  final List<Widget> _pages = const [
+    MezmurCatalogScreen(),
+    PoemsCatalogScreen(),
+    UserLibraryScreen(),
+    MoreMenuScreen(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final state = StateScope.of(context);
+    final hasActiveAudio = state.currentMezmur != null || state.currentPoemAudio != null;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text('ፈለገ ጥበብ ሰ/ት/ቤት', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFFD4AF37))),
+            Text('ወ/ሀ/ስ/ ቦ/ሶሬ/ወ/ቤ/ክ የወይቦ ደብረ ጽጌ ቅ/ገብርኤል ቤ/ክ', style: TextStyle(fontSize: 10, color: Color(0xFFD1D5DB)), overflow: TextOverflow.ellipsis),
+          ],
+        ),
+      ),
+      body: Stack(
+        children: [
+          IndexedStack(index: _tabIndex, children: _pages),
+          if (hasActiveAudio)
+            const Positioned(
+              left: 12,
+              right: 12,
+              bottom: 12,
+              child: SpiritualMiniPlayer(),
+            ),
+        ],
+      ),
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: Color(0xFF2E2429), width: 1)),
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _tabIndex,
+          onTap: (idx) => setState(() => _tabIndex = idx),
+          backgroundColor: const Color(0xFF161013),
+          selectedItemColor: const Color(0xFFD4AF37),
+          unselectedItemColor: const Color(0xFF9CA3AF),
+          type: BottomNavigationBarType.fixed,
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.queue_music_rounded), label: 'መዝሙራት'),
+            BottomNavigationBarItem(icon: Icon(Icons.auto_stories_rounded), label: 'ግጥሞች'),
+            BottomNavigationBarItem(icon: Icon(Icons.favorite_rounded), label: 'የእኔ ማህደር'),
+            BottomNavigationBarItem(icon: Icon(Icons.more_horiz_rounded), label: 'ተጨማሪ'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 4. ማጫወቻዎች (MINI & FULL PLAYER)
+// ==========================================
+
+class SpiritualMiniPlayer extends StatelessWidget {
+  const SpiritualMiniPlayer({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = StateScope.of(context);
+    final title = state.currentMezmur?.title ?? state.currentPoemAudio?.title ?? '';
+    final sub = state.currentMezmur?.singer ?? state.currentPoemAudio?.author ?? '';
+    final cover = state.currentMezmur?.coverUrl ??
+        'https://images.unsplash.com/photo-1548625361-195fe578491c?w=500';
+
+    return GestureDetector(
+      onTap: () {
+        if (state.currentMezmur != null) {
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (_) => const FullMezmurPlayer(),
+          );
+        }
+      },
+      child: Container(
+        height: 68,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF24191E),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFD4AF37).withOpacity(0.4)),
+          boxShadow: const [BoxShadow(color: Colors.black87, blurRadius: 10)],
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.network(cover, width: 48, height: 48, fit: BoxFit.cover),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  Text(sub, maxLines: 1, style: const TextStyle(fontSize: 11, color: Color(0xFFD4AF37))),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: Icon(state.isPlaying ? Icons.pause_circle_filled_rounded : Icons.play_circle_filled_rounded),
+              iconSize: 38,
+              color: const Color(0xFFD4AF37),
+              onPressed: () => state.togglePlayPause(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class FullMezmurPlayer extends StatelessWidget {
+  const FullMezmurPlayer({super.key});
+
+  String _format(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = StateScope.of(context);
+    final mezmur = state.currentMezmur;
+    if (mezmur == null) return const SizedBox.shrink();
+
+    return DefaultTabController(
+      length: 2,
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.90,
+        padding: const EdgeInsets.all(20),
+        decoration: const BoxDecoration(
+          color: Color(0xFF161013),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+        ),
+        child: Column(
+          children: [
+            Container(width: 44, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 12),
+            const TabBar(
+              indicatorColor: Color(0xFFD4AF37),
+              labelColor: Color(0xFFD4AF37),
+              unselectedLabelColor: Colors.white60,
+              tabs: [
+                Tab(icon: Icon(Icons.music_note_rounded), text: 'ማጫወቻ'),
+                Tab(icon: Icon(Icons.lyrics_rounded), text: 'የመዝሙር ግጥም'),
+              ],
+            ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(24),
+                        child: Image.network(mezmur.coverUrl, height: 230, width: double.infinity, fit: BoxFit.cover),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(mezmur.title, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                      const SizedBox(height: 6),
+                      Text(mezmur.singer, style: const TextStyle(color: Color(0xFFD4AF37), fontSize: 13)),
+                      const SizedBox(height: 20),
+                      Slider(
+                        activeColor: const Color(0xFFD4AF37),
+                        inactiveColor: Colors.white24,
+                        value: state.currentPosition.inSeconds.toDouble().clamp(0.0, state.totalDuration.inSeconds.toDouble().clamp(1.0, double.infinity)),
+                        max: state.totalDuration.inSeconds.toDouble().clamp(1.0, double.infinity),
+                        onChanged: (val) => state.seek(Duration(seconds: val.toInt())),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(_format(state.currentPosition), style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                            Text(_format(state.totalDuration), style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      IconButton(
+                        iconSize: 64,
+                        color: const Color(0xFFD4AF37),
+                        icon: Icon(state.isPlaying ? Icons.pause_circle_filled_rounded : Icons.play_circle_filled_rounded),
+                        onPressed: () => state.togglePlayPause(),
+                      ),
+                    ],
+                  ),
+                  SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
+                    child: Text(
+                      mezmur.lyrics,
+                      style: const TextStyle(fontSize: 16, height: 2.0, color: Color(0xFFF3F4F6)),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 5. ገጽ 1 & 2፡ መዝሙራት እና ግጥሞች
+// ==========================================
+
+class MezmurCatalogScreen extends StatelessWidget {
+  const MezmurCatalogScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = StateScope.of(context);
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
+      itemCount: state.mezmurs.length,
+      itemBuilder: (context, i) {
+        final mezmur = state.mezmurs[i];
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1B1417),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF2E2429)),
+          ),
+          child: ListTile(
+            leading: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(mezmur.coverUrl, width: 48, height: 48, fit: BoxFit.cover),
+            ),
+            title: Text(mezmur.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            subtitle: Text('${mezmur.singer} • ${mezmur.category}', style: const TextStyle(fontSize: 12, color: Colors.white54)),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: Icon(mezmur.isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded),
+                  color: mezmur.isFavorite ? const Color(0xFFDC2626) : Colors.white54,
+                  onPressed: () => state.toggleFavorite(mezmur),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.play_circle_fill_rounded, color: Color(0xFFD4AF37), size: 32),
+                  onPressed: () => state.playMezmur(mezmur),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class PoemsCatalogScreen extends StatelessWidget {
+  const PoemsCatalogScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = StateScope.of(context);
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
+      itemCount: state.poems.length,
+      itemBuilder: (context, i) {
+        final poem = state.poems[i];
+        return Card(
+          color: const Color(0xFF1B1417),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Color(0xFF2E2429))),
+          margin: const EdgeInsets.only(bottom: 14),
+          child: ListTile(
+            title: Text(poem.title, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFD4AF37))),
+            subtitle: Text('ደራሲ፦ ${poem.author}\n${poem.content.split('\n').first}...', maxLines: 2),
+            trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.white54),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => PoemDetailView(poem: poem)),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+}
+
+class PoemDetailView extends StatelessWidget {
+  final SpiritualPoem poem;
+  const PoemDetailView({super.key, required this.poem});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = StateScope.of(context);
+
+    return Scaffold(
+      appBar: AppBar(title: Text(poem.title)),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(poem.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFFD4AF37))),
+            const SizedBox(height: 6),
+            Text('ደራሲ፦ ${poem.author}', style: const TextStyle(color: Colors.white70)),
+            const Divider(height: 28, color: Colors.white24),
+            if (poem.audioRecitationUrl != null) ...[
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4AF37), foregroundColor: Colors.black),
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: const Text('የግጥሙን ድምፅ አዳምጥ'),
+                onPressed: () => state.playPoemAudio(poem),
+              ),
+              const SizedBox(height: 20),
+            ],
+            Text(poem.content, style: const TextStyle(fontSize: 17, height: 2.0, color: Color(0xFFE5E7EB))),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 6. ገጽ 3፡ የእኔ ማህደር
+// ==========================================
+
+class UserLibraryScreen extends StatelessWidget {
+  const UserLibraryScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = StateScope.of(context);
+    final favMezmurs = state.mezmurs.where((m) => m.isFavorite).toList();
+
+    return favMezmurs.isEmpty
+        ? const Center(child: Text('ምንም የተወደደ መዝሙር አልተገኘም።', style: TextStyle(color: Colors.white54)))
+        : ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: favMezmurs.length,
+            itemBuilder: (ctx, i) {
+              final m = favMezmurs[i];
+              return ListTile(
+                title: Text(m.title),
+                subtitle: Text(m.singer),
+                trailing: IconButton(
+                  icon: const Icon(Icons.play_circle_fill, color: Color(0xFFD4AF37)),
+                  onPressed: () => state.playMezmur(m),
+                ),
+              );
+            },
+          );
+  }
+}
+
+// ==========================================
+// 7. ገጽ 4፡ ተጨማሪ ክፍሎች & የአድሚን መግቢያ
+// ==========================================
+
+class MoreMenuScreen extends StatelessWidget {
+  const MoreMenuScreen({super.key});
+
+  void _openAdminLogin(BuildContext context) {
+    final pwdCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1B1417),
+        title: const Text('የአድሚን መግቢያ', style: TextStyle(color: Color(0xFFD4AF37))),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('አዳዲስ መዝሙራትና ግጥሞችን ለመጫን የአድሚን የይለፍ ቃል ያስገቡ።'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: pwdCtrl,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'የይለፍ ቃል (Password)',
+                hintText: '1234',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ተመለስ')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4AF37), foregroundColor: Colors.black),
+            onPressed: () {
+              // ነባሪ የይለፍ ቃል: 1234
+              if (pwdCtrl.text == '1234') {
+                Navigator.pop(ctx);
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminDashboardScreen()));
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('የተሳሳተ የይለፍ ቃል ነው! (ትክክለኛው: 1234)')),
+                );
+              }
+            },
+            child: const Text('ግባ'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        // የአድሚን መቆጣጠሪያ ማስገቢያ ቁልፍ
+        Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2E1A22),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFD4AF37)),
+          ),
+          child: ListTile(
+            leading: const Icon(Icons.admin_panel_settings_rounded, color: Color(0xFFD4AF37), size: 30),
+            title: const Text('የአድሚን መቆጣጠሪያ ገጽ (Admin Panel)', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFD4AF37))),
+            subtitle: const Text('መዝሙር፣ ግጥምና ድምፅ ለመጨመር/ለማስተዳደር', style: TextStyle(fontSize: 12, color: Colors.white70)),
+            trailing: const Icon(Icons.lock_open_rounded, size: 18, color: Color(0xFFD4AF37)),
+            onTap: () => _openAdminLogin(context),
+          ),
+        ),
+        const Divider(color: Colors.white24, height: 24),
+        _menuTile(Icons.church_rounded, 'ስለ እኛ (About Us)', 'የሰንበት ት/ቤቱ አመሠራረትና አገልግሎት'),
+        _menuTile(Icons.contact_phone_rounded, 'ያግኙን (Contact Us)', 'ስልክ፣ ቴሌግራም እና አድራሻ'),
+        _menuTile(Icons.help_outline_rounded, 'ተደጋጋሚ ጥያቄዎች (FAQ)', 'ስለ መተግበሪያው አጠቃቀም ማብራሪያ'),
+      ],
+    );
+  }
+
+  Widget _menuTile(IconData icon, String title, String subtitle) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1B1417),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF2E2429)),
+      ),
+      child: ListTile(
+        leading: Icon(icon, color: const Color(0xFFD4AF37)),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+        subtitle: Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.white54)),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 8. አድሚን መዝሙርና ግጥም የሚጨምርበት ገጽ
+// ==========================================
+
+class AdminDashboardScreen extends StatelessWidget {
+  const AdminDashboardScreen({super.key});
+
+  void _showAddMezmurDialog(BuildContext context, AppState state) {
+    final titleCtrl = TextEditingController();
+    final singerCtrl = TextEditingController();
+    final audioUrlCtrl = TextEditingController();
+    final lyricsCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1B1417),
+        title: const Text('አዲስ መዝሙር መጫኛ', style: TextStyle(color: Color(0xFFD4AF37))),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'የመዝሙሩ ርዕስ*')),
+              const SizedBox(height: 8),
+              TextField(controller: singerCtrl, decoration: const InputDecoration(labelText: 'መዘምራን / ዘማሪ*')),
+              const SizedBox(height: 8),
+              TextField(controller: audioUrlCtrl, decoration: const InputDecoration(labelText: 'የድምፅ ሊንክ (Audio MP3 URL)*', hintText: 'https://.../song.mp3')),
+              const SizedBox(height: 8),
+              TextField(controller: lyricsCtrl, maxLines: 4, decoration: const InputDecoration(labelText: 'የመዝሙሩ ሙሉ ግጥም*')),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ይቅር')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4AF37), foregroundColor: Colors.black),
+            onPressed: () {
+              if (titleCtrl.text.isNotEmpty) {
+                state.addMezmur(
+                  Mezmur(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    title: titleCtrl.text,
+                    singer: singerCtrl.text.isEmpty ? 'ፈለገ ጥበብ ሰ/ት/ቤት' : singerCtrl.text,
+                    category: 'የተጨመረ',
+                    audioUrl: audioUrlCtrl.text.isEmpty
+                        ? 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3'
+                        : audioUrlCtrl.text,
+                    coverUrl: 'https://images.unsplash.com/photo-1548625361-195fe578491c?w=500',
+                    lyrics: lyricsCtrl.text.isEmpty ? 'ግጥም አልተካተተም' : lyricsCtrl.text,
+                  ),
+                );
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('መዝሙሩ በተሳካ ሁኔታ ተጭኗል!')),
+                );
+              }
+            },
+            child: const Text('መዝግብ'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddPoemDialog(BuildContext context, AppState state) {
+    final titleCtrl = TextEditingController();
+    final authorCtrl = TextEditingController();
+    final contentCtrl = TextEditingController();
+    final audioUrlCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1B1417),
+        title: const Text('አዲስ መንፈሳዊ ግጥም መጫኛ', style: TextStyle(color: Color(0xFFD4AF37))),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'የግጥሙ ርዕስ*')),
+              const SizedBox(height: 8),
+              TextField(controller: authorCtrl, decoration: const InputDecoration(labelText: 'ደራሲ')),
+              const SizedBox(height: 8),
+              TextField(controller: audioUrlCtrl, decoration: const InputDecoration(labelText: 'የድምፅ ንባብ ሊንክ (አማራጭ)', hintText: 'https://.../audio.mp3')),
+              const SizedBox(height: 8),
+              TextField(controller: contentCtrl, maxLines: 5, decoration: const InputDecoration(labelText: 'የግጥሙ ስንኞች*')),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ይቅር')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4AF37), foregroundColor: Colors.black),
+            onPressed: () {
+              if (titleCtrl.text.isNotEmpty) {
+                state.addPoem(
+                  SpiritualPoem(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    title: titleCtrl.text,
+                    author: authorCtrl.text.isEmpty ? 'የሰንበት ት/ቤት አባል' : authorCtrl.text,
+                    category: 'መንፈሳዊ ግጥም',
+                    content: contentCtrl.text,
+                    audioRecitationUrl: audioUrlCtrl.text.isEmpty ? null : audioUrlCtrl.text,
+                  ),
+                );
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('ግጥሙ በተሳካ ሁኔታ ተመዝግቧል!')),
+                );
+              }
+            },
+            child: const Text('መዝግብ'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = StateScope.of(context);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('የአድሚን ዳሽቦርድ')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFD4AF37),
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    icon: const Icon(Icons.music_note_rounded),
+                    label: const Text('መዝሙር ጫን'),
+                    onPressed: () => _showAddMezmurDialog(context, state),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF991B1B),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    icon: const Icon(Icons.edit_note_rounded),
+                    label: const Text('ግጥም ጫን'),
+                    onPressed: () => _showAddPoemDialog(context, state),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text('በአሁኑ ሰዓት በመተግበሪያው ላይ ያሉ መዝሙራት', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: ListView.builder(
+                itemCount: state.mezmurs.length,
+                itemBuilder: (ctx, i) {
+                  final m = state.mezmurs[i];
+                  return Card(
+                    color: const Color(0xFF1B1417),
+                    child: ListTile(
+                      title: Text(m.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text(m.singer),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_forever_rounded, color: Colors.redAccent),
+                        onPressed: () => state.deleteMezmur(m.id),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

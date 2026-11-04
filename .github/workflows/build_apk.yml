@@ -24,14 +24,14 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: 4. የአንድሮይድ ፕሮጀክት ማመንጨት እና ፋይሎችን መጠበቅ
+      - name: 4. የአንድሮይድ ፕሮጀክት ማመንጨት
         run: |
-          # ፋይሎችን እንዳይጠፉ Backup ማድረግ
+          # ፋይሎችን Backup ማድረግ
           cp pubspec.yaml pubspec.yaml.bak
           [ -f lib/main.dart ] && cp lib/main.dart lib/main.dart.bak
 
-          # አንድሮይድ ፎልደር ማመንጨት
-          flutter create . --project-name felege_tibeb_mezmur --platforms=android --org com.felegetibeb.app
+          # --no-pub በማከል አንድሮይድ ፎልደር ማመንጨት
+          flutter create . --no-pub --project-name felege_tibeb_mezmur --platforms=android --org com.felegetibeb.app
 
           # ትክክለኛውን pubspec እና main.dart መልሶ መተካት
           mv pubspec.yaml.bak pubspec.yaml
@@ -40,9 +40,9 @@ jobs:
           # የኢንተርኔት ፈቃድ ማከል
           sed -i '/<application/i <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml || true
 
-          # ለ audioplayers የሚያስፈልገውን minSdkVersion 21 ማስተካከል
+          # ለአዲሱ build.gradle.kts እና ለቀደመው build.gradle minSdkVersion 21 ማስተካከል
+          sed -i 's/minSdk = .*/minSdk = 21/g' android/app/build.gradle.kts || true
           sed -i 's/minSdkVersion [0-9]*/minSdkVersion 21/g' android/app/build.gradle || true
-          sed -i 's/minSdk = [0-9]*/minSdk = 21/g' android/app/build.gradle || true
 
       - name: 5. ጥገኞችን መጫን
         run: flutter pub get
